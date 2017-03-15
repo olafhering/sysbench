@@ -23,6 +23,8 @@
 #include "sb_win.h"
 #endif
 
+#include <errno.h>
+#include <sched.h>
 #include "sysbench.h"
 #include "sb_rand.h"
 
@@ -60,6 +62,7 @@ static sb_event_t memory_next_event(int);
 static int memory_execute_event(sb_event_t *, int);
 static void memory_report_intermediate(sb_stat_t *);
 static void memory_report_cumulative(sb_stat_t *);
+static int memory_thread_init(int);
 
 static sb_test_t memory_test =
 {
@@ -67,6 +70,7 @@ static sb_test_t memory_test =
   .lname = "Memory functions speed test",
   .ops = {
     .init = memory_init,
+    .thread_init = memory_thread_init,
     .print_mode = memory_print_mode,
     .next_event = memory_next_event,
     .execute_event = memory_execute_event,
@@ -78,6 +82,11 @@ static sb_test_t memory_test =
 
 /* Test arguments */
 
+static unsigned cnt;
+static long *per_exec_times;
+static long *per_exec_times_min;
+static long *per_exec_times_max;
+static long *per_exec_times_cnt;
 static ssize_t memory_block_size;
 static long long    memory_total_size;
 static unsigned int memory_scope;
@@ -97,6 +106,34 @@ static int **buffers;
 /* Global buffer */
 static int *buffer;
 
+static void diff_timespec(const struct timespec *old, const struct timespec *new, struct timespec *diff)
+{
+	if ((new->tv_nsec - old->tv_nsec) < 0) {
+		diff->tv_sec = new->tv_sec - old->tv_sec - 1;
+		diff->tv_nsec = new->tv_nsec - old->tv_nsec + 1000000000;
+	} else {
+		diff->tv_sec = new->tv_sec - old->tv_sec;
+		diff->tv_nsec = new->tv_nsec - old->tv_nsec;
+	}
+}
+
+
+static int memory_thread_init(int thread_id)
+{
+  cpu_set_t set;
+  int rc;
+  char *e;
+
+  e = calloc(123, 1);
+  CPU_ZERO(&set);
+  CPU_SET(thread_id, &set);
+  rc = sched_setaffinity(0, sizeof(set), &set);
+  if (strerror_r(errno, e, 123))
+	  perror("strerror");
+  log_text(LOG_INFO, "thread %d %s", thread_id, e);
+  free(e);
+  return rc;
+}
 #ifdef HAVE_LARGE_PAGES
 static void * hugetlb_alloc(size_t size);
 #endif
@@ -206,6 +243,11 @@ int memory_init(void)
   /* Use our own limit on the number of events */
   sb_globals.max_events = 0;
 
+  per_exec_times = calloc(sb_globals.threads, sizeof(*per_exec_times));
+  per_exec_times_min = calloc(sb_globals.threads, sizeof(*per_exec_times_min));
+  per_exec_times_max = calloc(sb_globals.threads, sizeof(*per_exec_times_max));
+  per_exec_times_cnt = calloc(sb_globals.threads, sizeof(*per_exec_times_cnt));
+
   return 0;
 }
 
@@ -243,7 +285,15 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
   int                 idx; 
   int                 *buf, *end;
   long                i;
+  struct timespec     start, stop, diff;
 
+  per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
+  if (clock_gettime(CLOCK_MONOTONIC_RAW, &start)) {
+    log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
+    exit(1);
+  }
+
+  cnt++;
   if (mem_req->scope == SB_MEM_SCOPE_GLOBAL)
     buf = buffer;
   else
@@ -297,6 +347,24 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
     }
   }
 
+  if (clock_gettime(CLOCK_MONOTONIC_RAW, &stop)) {
+    log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
+    exit(1);
+  }
+  diff_timespec(&start, &stop, &diff);
+  if (diff.tv_sec) {
+    log_text(LOG_FATAL, "%s %d %lu.%lu\n", __func__, thread_id, diff.tv_sec, diff.tv_nsec);
+    exit(1);
+  }
+  if (per_exec_times[thread_id]) {
+    per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
+    if (diff.tv_nsec < per_exec_times_min[thread_id]) per_exec_times_min[thread_id] = diff.tv_nsec;
+    if (diff.tv_nsec > per_exec_times_max[thread_id]) per_exec_times_max[thread_id] = diff.tv_nsec;
+  } else {
+    per_exec_times[thread_id] = diff.tv_nsec;
+    per_exec_times_min[thread_id] = diff.tv_nsec;
+    per_exec_times_max[thread_id] = diff.tv_nsec;
+  }
   return 0;
 }
 
@@ -350,13 +418,25 @@ void memory_print_mode(void)
 void memory_report_intermediate(sb_stat_t *stat)
 {
   const double megabyte = 1024.0 * 1024.0;
+  static char t[4096];
+  size_t i, j = 0, k;
 
   SB_THREAD_MUTEX_LOCK();
 
+  for (i = 0; i < sb_globals.threads; i++) {
+    k = snprintf(t + j, sizeof(t) - j, "%lx(%05lx %05lx %06lx) ", per_exec_times_cnt[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
+    per_exec_times[i] = 0;
+    per_exec_times_cnt[i] = 0;
+    per_exec_times_min[i] = 0;
+    per_exec_times_max[i] = 0;
+    if (k > sizeof(t) - j) exit(1);
+    j += k;
+  }
   log_timestamp(LOG_NOTICE, stat->time_total,
-                "%4.2f MiB/sec", (double)(total_bytes - last_bytes) /
-                megabyte / stat->time_interval);
+                "% 4.2f MiB/sec %u: %s", (double)(total_bytes - last_bytes) /
+                megabyte / stat->time_interval, cnt, t);
   last_bytes = total_bytes;
+  cnt = 0;
 
   SB_THREAD_MUTEX_UNLOCK();
 }
