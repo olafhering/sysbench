@@ -9,11 +9,11 @@ while test $LOOP -gt 0; do
   echo Test $LOOP
   ${sysbench} \
         --memory-block-size=8k \
-        --memory-total-size=1024T \
+        --memory-total-size=65536T \
         --verbosity=5 \
         --threads=${cpus} \
         --report-interval=3 \
-        --time=1234 \
+        --time=65536 \
         memory run
         date
         uname -a
