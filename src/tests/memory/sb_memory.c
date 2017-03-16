@@ -288,7 +288,7 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
   struct timespec     start, stop, diff;
 
   per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
-  if (clock_gettime(CLOCK_MONOTONIC_RAW, &start)) {
+  if (clock_gettime(CLOCK_MONOTONIC, &start)) {
     log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
     exit(1);
   }
@@ -347,7 +347,7 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
     }
   }
 
-  if (clock_gettime(CLOCK_MONOTONIC_RAW, &stop)) {
+  if (clock_gettime(CLOCK_MONOTONIC, &stop)) {
     log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
     exit(1);
   }
