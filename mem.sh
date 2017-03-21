@@ -7,6 +7,8 @@ cpus=`if grep -Ec 'cpu[0-9]' /proc/stat ; then : ; elif sysctl -n hw.ncpu ; then
 
 while test $LOOP -gt 0; do
   echo Test $LOOP
+  uname -a
+  free -m
   ${sysbench} \
         --memory-block-size=8k \
         --memory-total-size=65536T \
