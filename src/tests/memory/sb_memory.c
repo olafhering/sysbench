@@ -87,6 +87,7 @@ static long *per_exec_times;
 static long *per_exec_times_min;
 static long *per_exec_times_max;
 static long *per_exec_times_cnt;
+static long *per_exec_times_miss;
 static ssize_t memory_block_size;
 static long long    memory_total_size;
 static unsigned int memory_scope;
@@ -247,6 +248,7 @@ int memory_init(void)
   per_exec_times_min = calloc(sb_globals.threads, sizeof(*per_exec_times_min));
   per_exec_times_max = calloc(sb_globals.threads, sizeof(*per_exec_times_max));
   per_exec_times_cnt = calloc(sb_globals.threads, sizeof(*per_exec_times_cnt));
+  per_exec_times_miss = calloc(sb_globals.threads, sizeof(*per_exec_times_miss));
 
   return 0;
 }
@@ -357,9 +359,13 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
     exit(1);
   }
   if (per_exec_times[thread_id]) {
-    per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
-    if (diff.tv_nsec < per_exec_times_min[thread_id]) per_exec_times_min[thread_id] = diff.tv_nsec;
-    if (diff.tv_nsec > per_exec_times_max[thread_id]) per_exec_times_max[thread_id] = diff.tv_nsec;
+    if (diff.tv_nsec) {
+      per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
+      if (diff.tv_nsec < per_exec_times_min[thread_id]) per_exec_times_min[thread_id] = diff.tv_nsec;
+      if (diff.tv_nsec > per_exec_times_max[thread_id]) per_exec_times_max[thread_id] = diff.tv_nsec;
+    } else {
+      per_exec_times_miss[thread_id] = per_exec_times_miss[thread_id] + 1;
+    }
   } else {
     per_exec_times[thread_id] = diff.tv_nsec;
     per_exec_times_min[thread_id] = diff.tv_nsec;
@@ -424,9 +430,10 @@ void memory_report_intermediate(sb_stat_t *stat)
   SB_THREAD_MUTEX_LOCK();
 
   for (i = 0; i < sb_globals.threads; i++) {
-    k = snprintf(t + j, sizeof(t) - j, "%lx(%05lx %05lx %06lx) ", per_exec_times_cnt[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
+    k = snprintf(t + j, sizeof(t) - j, "%lx/%lx(%05lx %05lx %06lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
     per_exec_times[i] = 0;
     per_exec_times_cnt[i] = 0;
+    per_exec_times_miss[i] = 0;
     per_exec_times_min[i] = 0;
     per_exec_times_max[i] = 0;
     if (k > sizeof(t) - j) exit(1);
