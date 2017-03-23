@@ -440,7 +440,7 @@ void memory_report_intermediate(sb_stat_t *stat)
     j += k;
   }
   log_timestamp(LOG_NOTICE, stat->time_total,
-                "% 5.2f MiB/sec %u: %s", (double)(total_bytes - last_bytes) /
+                "% 9.2f MiB/sec %u: %s", (double)(total_bytes - last_bytes) /
                 megabyte / stat->time_interval, cnt, t);
   last_bytes = total_bytes;
   cnt = 0;
