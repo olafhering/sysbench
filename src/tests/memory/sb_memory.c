@@ -430,7 +430,7 @@ void memory_report_intermediate(sb_stat_t *stat)
   SB_THREAD_MUTEX_LOCK();
 
   for (i = 0; i < sb_globals.threads; i++) {
-    k = snprintf(t + j, sizeof(t) - j, "% 6lx/%lx(%6lx %6lx %6lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
+    k = snprintf(t + j, sizeof(t) - j, "% 6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
     per_exec_times[i] = 0;
     per_exec_times_cnt[i] = 0;
     per_exec_times_miss[i] = 0;
