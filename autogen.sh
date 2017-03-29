@@ -7,9 +7,14 @@ automake --version
 pkg-config --version
 make --version
 gcc --version
+test -n "$(type -p gcc-4.8)" && gcc-4.8 --version
 xxd --version
+CC=gcc
+test -n "$(type -p gcc-4.8)" && CC=gcc-4.8
 autoreconf -vi
-env CFLAGS='-fmessage-length=0 -fstack-protector -O2 -Wall -D_FORTIFY_SOURCE=2 -funwind-tables -fasynchronous-unwind-tables' \
+env \
+CC=$CC \
+CFLAGS='-fmessage-length=0 -fstack-protector -O2 -Wall -D_FORTIFY_SOURCE=2 -funwind-tables -fasynchronous-unwind-tables' \
 ./configure \
 	--without-mysql \
 	--without-gcc-arch
