@@ -426,6 +426,7 @@ void memory_report_intermediate(sb_stat_t *stat)
   const double megabyte = 1024.0 * 1024.0;
   static char t[4096];
   size_t i, j = 0, k;
+  unsigned long long tsc = __builtin_ia32_rdtsc();
 
   SB_THREAD_MUTEX_LOCK();
 
@@ -440,8 +441,8 @@ void memory_report_intermediate(sb_stat_t *stat)
     j += k;
   }
   log_timestamp(LOG_NOTICE, stat->time_total,
-                "% 9.2f MiB/sec % 7u: %s", (double)(total_bytes - last_bytes) /
-                megabyte / stat->time_interval, cnt, t);
+                "% 9.2f MiB/sec % 7u: %16llx %s", (double)(total_bytes - last_bytes) /
+                megabyte / stat->time_interval, cnt, tsc, t);
   last_bytes = total_bytes;
   cnt = 0;
 
