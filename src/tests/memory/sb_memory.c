@@ -120,6 +120,8 @@ static void diff_timespec(const struct timespec *old, const struct timespec *new
 		diff->tv_sec = new->tv_sec - old->tv_sec;
 		diff->tv_nsec = new->tv_nsec - old->tv_nsec;
 	}
+	if (diff->tv_sec < 0)
+		log_text(LOG_FATAL, "%s: time diff broken. old: %ld/%ld new: %ld/%ld diff: %ld/%ld ", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec, diff->tv_sec, diff->tv_nsec);
 }
 
 
