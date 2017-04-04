@@ -107,7 +107,7 @@ static int **buffers;
 /* Global buffer */
 static int *buffer;
 
-static void diff_timespec(const struct timespec *old, const struct timespec *new, struct timespec *diff)
+static void diff_timespec(int thread_id, const struct timespec *old, const struct timespec *new, struct timespec *diff)
 {
 	if (new->tv_sec == old->tv_sec && new->tv_nsec == old->tv_nsec)
 		log_text(LOG_FATAL, "%s: time did not move: %ld/%ld == %ld/%ld", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
@@ -359,11 +359,7 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
     log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
     exit(1);
   }
-  diff_timespec(&start, &stop, &diff);
-  if (diff.tv_sec) {
-    log_text(LOG_FATAL, "%s %d %lu.%lu\n", __func__, thread_id, diff.tv_sec, diff.tv_nsec);
-    exit(1);
-  }
+  diff_timespec(thread_id, &start, &stop, &diff);
   if (per_exec_times[thread_id]) {
     if (diff.tv_nsec) {
       per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
