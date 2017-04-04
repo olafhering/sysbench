@@ -109,10 +109,10 @@ static int *buffer;
 
 static void diff_timespec(const struct timespec *old, const struct timespec *new, struct timespec *diff)
 {
-	if (	(new->tv_sec < old->tv_sec) ||
-		(new->tv_sec == old->tv_sec && new->tv_nsec <= old->tv_nsec)	) {
+	if (new->tv_sec == old->tv_sec && new->tv_nsec == old->tv_nsec)
+		log_text(LOG_FATAL, "%s: time did not move: %ld/%ld == %ld/%ld", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
+	if ( (new->tv_sec < old->tv_sec) || (new->tv_sec == old->tv_sec && new->tv_nsec < old->tv_nsec)	)
 		log_text(LOG_FATAL, "%s: time went backwards: %ld/%ld -> %ld/%ld", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
-	}
 	if ((new->tv_nsec - old->tv_nsec) < 0) {
 		diff->tv_sec = new->tv_sec - old->tv_sec - 1;
 		diff->tv_nsec = new->tv_nsec - old->tv_nsec + 1000000000;
