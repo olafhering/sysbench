@@ -110,9 +110,9 @@ static int *buffer;
 static void diff_timespec(int thread_id, const struct timespec *old, const struct timespec *new, struct timespec *diff)
 {
 	if (new->tv_sec == old->tv_sec && new->tv_nsec == old->tv_nsec)
-		log_text(LOG_FATAL, "%s: time did not move: %ld/%ld == %ld/%ld", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
+		log_text(LOG_FATAL, "%s: #%d time did not move: %ld/%ld == %ld/%ld", __func__, thread_id, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
 	if ( (new->tv_sec < old->tv_sec) || (new->tv_sec == old->tv_sec && new->tv_nsec < old->tv_nsec)	)
-		log_text(LOG_FATAL, "%s: time went backwards: %ld/%ld -> %ld/%ld", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
+		log_text(LOG_FATAL, "%s: #%d time went backwards: %ld/%ld -> %ld/%ld", __func__, thread_id, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec);
 	if ((new->tv_nsec - old->tv_nsec) < 0) {
 		diff->tv_sec = new->tv_sec - old->tv_sec - 1;
 		diff->tv_nsec = new->tv_nsec - old->tv_nsec + 1000000000;
@@ -121,7 +121,7 @@ static void diff_timespec(int thread_id, const struct timespec *old, const struc
 		diff->tv_nsec = new->tv_nsec - old->tv_nsec;
 	}
 	if (diff->tv_sec < 0)
-		log_text(LOG_FATAL, "%s: time diff broken. old: %ld/%ld new: %ld/%ld diff: %ld/%ld ", __func__, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec, diff->tv_sec, diff->tv_nsec);
+		log_text(LOG_FATAL, "%s: #%d time diff broken. old: %ld/%ld new: %ld/%ld diff: %ld/%ld ", __func__, thread_id, old->tv_sec, old->tv_nsec, new->tv_sec, new->tv_nsec, diff->tv_sec, diff->tv_nsec);
 }
 
 
