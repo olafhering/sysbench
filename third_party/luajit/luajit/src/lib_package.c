@@ -193,8 +193,7 @@ static void **ll_register(lua_State *L, const char *path)
     lua_pop(L, 1);
     plib = (void **)lua_newuserdata(L, sizeof(void *));
     *plib = NULL;
-    luaL_getmetatable(L, "_LOADLIB");
-    lua_setmetatable(L, -2);
+    luaL_setmetatable(L, "_LOADLIB");
     lua_pushfstring(L, "LOADLIB: %s", path);
     lua_pushvalue(L, -2);
     lua_settable(L, LUA_REGISTRYINDEX);
@@ -299,9 +298,23 @@ static const char *searchpath (lua_State *L, const char *name,
     const char *filename = luaL_gsub(L, lua_tostring(L, -1),
 				     LUA_PATH_MARK, name);
     lua_remove(L, -2);  /* remove path template */
+    goto check_readable; /* suppress "unused label" warning */
+check_readable:
     if (readable(filename))  /* does file exist and is readable? */
       return filename;  /* return that file name */
     lua_pushfstring(L, "\n\tno file " LUA_QS, filename);
+#if LJ_TARGET_OSX || LJ_TARGET_IOS
+    /* if *.dylib is missing, try *.so */
+    size_t len = strlen(filename);
+    if (len > 6 && strcmp(filename + len - 6, ".dylib") == 0) {
+      luaL_addvalue(&msg);  /* concatenate error msg. entry */
+      lua_pushlstring(L, filename, len - 6);
+      filename = lua_pushfstring(L, "%s.so", lua_tostring(L, -1));
+      lua_insert(L, -3); /* sink new filename below old one */
+      lua_pop(L, 2);
+      goto check_readable;
+    }
+#endif
     lua_remove(L, -2);  /* remove file name */
     luaL_addvalue(&msg);  /* concatenate error msg. entry */
   }
@@ -489,29 +502,19 @@ static void modinit(lua_State *L, const char *modname)
 static int lj_cf_package_module(lua_State *L)
 {
   const char *modname = luaL_checkstring(L, 1);
-  int loaded = lua_gettop(L) + 1;  /* index of _LOADED table */
-  lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
-  lua_getfield(L, loaded, modname);  /* get _LOADED[modname] */
-  if (!lua_istable(L, -1)) {  /* not found? */
-    lua_pop(L, 1);  /* remove previous result */
-    /* try global variable (and create one if it does not exist) */
-    if (luaL_findtable(L, LUA_GLOBALSINDEX, modname, 1) != NULL)
-      lj_err_callerv(L, LJ_ERR_BADMODN, modname);
-    lua_pushvalue(L, -1);
-    lua_setfield(L, loaded, modname);  /* _LOADED[modname] = new table */
-  }
-  /* check whether table already has a _NAME field */
+  int lastarg = (int)(L->top - L->base);
+  luaL_pushmodule(L, modname, 1);
   lua_getfield(L, -1, "_NAME");
-  if (!lua_isnil(L, -1)) {  /* is table an initialized module? */
+  if (!lua_isnil(L, -1)) {  /* Module already initialized? */
     lua_pop(L, 1);
-  } else {  /* no; initialize it */
+  } else {
     lua_pop(L, 1);
     modinit(L, modname);
   }
   lua_pushvalue(L, -1);
   setfenv(L);
-  dooptions(L, loaded - 1);
-  return 0;
+  dooptions(L, lastarg);
+  return LJ_52;
 }
 
 static int lj_cf_package_seeall(lua_State *L)
@@ -582,8 +585,7 @@ LUALIB_API int luaopen_package(lua_State *L)
   lj_lib_pushcf(L, lj_cf_package_unloadlib, 1);
   lua_setfield(L, -2, "__gc");
   luaL_register(L, LUA_LOADLIBNAME, package_lib);
-  lua_pushvalue(L, -1);
-  lua_replace(L, LUA_ENVIRONINDEX);
+  lua_copy(L, -1, LUA_ENVIRONINDEX);
   lua_createtable(L, sizeof(package_loaders)/sizeof(package_loaders[0])-1, 0);
   for (i = 0; package_loaders[i] != NULL; i++) {
     lj_lib_pushcf(L, package_loaders[i], 1);

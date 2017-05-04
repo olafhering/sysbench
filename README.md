@@ -1,46 +1,190 @@
 [![Latest Release][release-badge]][release-url]
 [![Build Status][travis-badge]][travis-url]
+[![Debian Packages][deb-badge]][deb-url]
+[![RPM Packages][rpm-badge]][rpm-url]
 [![Coverage Status][coveralls-badge]][coveralls-url]
 [![License][license-badge]][license-url]
 
-# About
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-generate-toc again -->
+**Table of Contents**
 
-sysbench is a modular, cross-platform and multi-threaded benchmark tool
-for evaluating OS parameters that are important for a system running a
-database under intensive load.
+- [sysbench](#sysbench)
+    - [Features](#features)
+- [Installing from Binary Packages](#installing-from-binary-packages)
+    - [Linux](#linux)
+    - [macOS](#macos)
+    - [Windows](#windows)
+- [Building and Installing From Source](#building-and-installing-from-source)
+    - [Build Requirements](#build-requirements)
+        - [Windows](#windows)
+        - [Debian/Ubuntu](#debianubuntu)
+        - [RHEL/CentOS](#rhelcentos)
+        - [Fedora](#fedora)
+        - [macOS](#macos)
+    - [Build and Install](#build-and-install)
+- [Usage](#usage)
+    - [General syntax](#general-syntax)
+    - [General command line options](#general-command-line-options)
 
-The idea of this benchmark suite is to quickly get an impression about
-system performance without setting up complex database benchmarks or
-even without installing a database at all.
+<!-- markdown-toc end -->
+
+# sysbench
+
+sysbench is a scriptable multi-threaded benchmark tool based on
+LuaJIT. It is most frequently used for database benchmarks, but can also
+be used to create arbitrarily complex workloads that do not involve a
+database server.
+
+sysbench comes with the following bundled benchmarks:
+
+- `oltp_*.lua`: a collection of OLTP-like database benchmarks
+- `fileio`: a filesystem-level benchmark
+- `cpu`: a simple CPU benchmark
+- `memory`: a memory access benchmark
+- `threads`: a thread-based scheduler benchmark
+- `mutex`: a POSIX mutex benchmark
 
 ## Features
 
-Current features allow to test the following system parameters:
+- extensive statistics about rate and latency is available, including
+  latency percentiles and histograms;
+- low overhead even with thousands of concurrent threads. sysbench is
+  capable of generating and tracking hundreds of millions of events per
+  second;
+- new benchmarks can be easily created by implementing pre-defined hooks
+  in user-provided Lua scripts;
+- can be used as a general-purpose Lua interpreter as well, simply
+  replace `#!/usr/bin/lua` with `#!/usr/bin/sysbench` in your script.
 
--   file I/O performance
+# Installing from Binary Packages
 
--   scheduler performance
+## Linux
 
--   memory allocation and transfer speed
+The easiest way to download and install sysbench on Linux is using
+binary package repositories hosted by
+[packagecloud](https://packagecloud.io). The repositories are
+automatically updated on each sysbench release. Currently x86_64, i386
+and aarch64 binaries are available.
 
--   POSIX threads implementation performance
+Multiple methods to download and install sysbench packages are available and
+described at <https://packagecloud.io/akopytov/sysbench/install>.
 
--   database server performance
+Quick install instructions:
 
-## Installation
+- Debian/Ubuntu
+  ``` shell
+  curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash
+  sudo apt -y install sysbench
+  ```
 
-	./autogen.sh
-	./configure
-	make
-	make install
+- RHEL/CentOS:
+  ``` shell
+  curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.rpm.sh | sudo bash
+  sudo yum -y install sysbench
+  ```
 
-The above will build sysbench with MySQL support by default. If you have MySQL headers and libraries in non-standard locations (and no `mysql_config` can be found in the `PATH`), you can specify them explicitly with `--with-mysql-includes` and `--with-mysql-libs` options to `./configure`.
+- Fedora:
+  ``` shell
+  curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.rpm.sh | sudo bash	
+  sudo dnf -y install sysbench
+  ```
 
-To compile sysbench without MySQL support, use `--without-mysql`. In
-this case all database-related tests will not work, but other tests will
-be functional.
+## macOS
 
-See [README-WIN.txt](README-WIN.txt) for instructions on Windows builds.
+On macOS, up-to-date sysbench packages are available from Homebrew:
+```shell
+# Add --with-postgresql if you need PostgreSQL support
+brew install sysbench
+```
+
+## Windows
+As of sysbench 1.0 support for native Windows builds was dropped. It may
+be re-introduced in later releases. Currently, the recommended way to
+obtain sysbench on Windows is
+using
+[Windows Subsystem for Linux available in Windows 10](https://msdn.microsoft.com/en-us/commandline/wsl/about).
+
+After installing WSL and getting into he bash prompt on Windows
+following Debian/Ubuntu installation instructions is
+sufficient. Alternatively, one can use WSL to build and install sysbench
+from source, or use an older sysbench release to build a native binary.
+
+# Building and Installing From Source
+
+It is recommended to install sysbench from the official binary
+packages as described in
+[Installing from Binary Packages](#installing-from-binary-packages). Below
+are instruction for cases when you want to use sysbench on an
+architecture for which no binary packages are available.
+
+## Build Requirements
+
+### Windows
+As of sysbench 1.0 support for native Windows builds was
+dropped. It may be re-introduced in later versions. Currently, the
+recommended way to build sysbench on Windows is using
+[Windows Subsystem for Linux available in Windows 10](https://msdn.microsoft.com/en-us/commandline/wsl/about).
+
+After installing WSL and getting into bash prompt on Windows, following
+Debian/Ubuntu build instructions is sufficient. Alternatively, one can
+build and use an older 0.5 release on Windows.
+
+### Debian/Ubuntu
+``` shell
+    apt -y install make automake libtool pkg-config libaio-dev vim-common
+    # For MySQL support
+    apt -y install libmysqlclient-dev
+    # For PostgreSQL support
+    apt -y install libpq-dev
+```
+
+### RHEL/CentOS
+``` shell
+    yum -y install make automake libtool pkgconfig libaio-devel vim-common
+    # For MySQL support, replace with mysql-devel on RHEL/CentOS 5
+    yum -y install mariadb-devel
+    # For PostgreSQL support
+    yum -y install postgresql-devel
+```
+
+### Fedora
+``` shell
+    dnf -y install make automake libtool pkgconfig libaio-devel vim-common
+    # For MySQL support
+    dnf -y install mariadb-devel
+    # For PostgreSQL support
+    dnf -y install postgresql-devel
+```
+
+### macOS
+
+Assuming you have Xcode (or Xcode Commane Line Tools) and Homebrew installed:
+``` shell
+    brew install automake pkg-config
+    # For MySQL support
+    brew install mysql
+    # For PostgreSQL support
+    brew install postgresql
+```
+
+## Build and Install
+``` shell
+    ./autogen.sh
+    # Add --with-pgsql to build with PostgreSQL support
+    ./configure
+    make
+    make install
+```
+
+The above will build sysbench with MySQL support by default. If you have
+MySQL headers and libraries in non-standard locations (and no
+`mysql_config` can be found in the `PATH`), you can specify them
+explicitly with `--with-mysql-includes` and `--with-mysql-libs` options
+to `./configure`.
+
+To compile sysbench without MySQL support, use `--without-mysql`. If no
+database drivers are available database-related scripts will not work,
+but other benchmarks will be functional.
 
 See [README-Oracle.md](README-Oracle.md) for instructions on building
 with Oracle client libraries.
@@ -108,9 +252,10 @@ The table below lists the supported common options, their descriptions and defau
 | `--report-interval`   | Periodically report intermediate statistics with a specified interval in seconds. Note that statistics produced by this option is per-interval rather than cumulative. 0 disables intermediate reports                                                                                                                                                                                                                                                                  | 0               |
 | `--debug`             | Print more debug info                                                                                                                                                                                                                                                                                                                                                                                                                                                   | off             |
 | `--validate`          | Perform validation of test results where possible                                                                                                                                                                                                                                                                                                                                                                                                                       | off             |
-| `--help`              | Print help on general syntax or on a test mode specified with --test, and exit                                                                                                                                                                                                                                                                                                                                                                                          | off             |
+| `--help`              | Print help on general syntax or on a specified test, and exit                                                                                                                                                                                                                                                                                                                                                                                                           | off             |
 | `--verbosity`         | Verbosity level (0 - only critical messages, 5 - debug)                                                                                                                                                                                                                                                                                                                                                                                                                 | 4               |
 | `--percentile`        | sysbench measures execution times for all processed requests to display statistical information like minimal, average and maximum execution time. For most benchmarks it is also useful to know a request execution time value matching some percentile (e.g. 95% percentile means we should drop 5% of the most long requests and choose the maximal value from the remaining ones). This option allows to specify a percentile rank of query execution times to count | 95              |
+| `--luajit-cmd`        | perform a LuaJIT control command. This option is equivalent to `luajit -j`. See [LuaJIT documentation](http://luajit.org/running.html) for more information                                                                                                                                                                                                                                                                                                             |               |
 
 Note that numerical values for all *size* options (like `--thread-stack-size` in this table) may be specified by appending the corresponding multiplicative suffix (K for kilobytes, M for megabytes, G for gigabytes and T for terabytes).
 
@@ -122,3 +267,7 @@ Note that numerical values for all *size* options (like `--thread-stack-size` in
 [license-url]: COPYING
 [release-badge]: https://img.shields.io/github/release/akopytov/sysbench.svg
 [release-url]: https://github.com/akopytov/sysbench/releases/latest
+[deb-badge]: https://img.shields.io/badge/Packages-Debian-red.svg?style=flat
+[deb-url]: https://packagecloud.io/akopytov/sysbench?filter=debs
+[rpm-badge]: https://img.shields.io/badge/Packages-RPM-blue.svg?style=flat
+[rpm-url]: https://packagecloud.io/akopytov/sysbench?filter=rpms

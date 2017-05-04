@@ -118,6 +118,11 @@ sb_arg_t general_args[] =
   SB_OPT("help", "print help and exit", "off", BOOL),
   SB_OPT("version", "print version and exit", "off", BOOL),
   SB_OPT("config-file", "File containing command line options", NULL, FILE),
+  SB_OPT("luajit-cmd", "perform LuaJIT control command. This option is "
+         "equivalent to 'luajit -j'. See LuaJIT documentation for more "
+         "information", NULL, STRING),
+
+  /* Deprecated aliases */
   SB_OPT("tx-rate", "deprecated alias for --rate", "0", INT),
   SB_OPT("max-requests", "deprecated alias for --events", "0", INT),
   SB_OPT("max-time", "deprecated alias for --time", "0", INT),
@@ -929,9 +934,9 @@ static void *eventgen_thread_proc(void *arg)
     }
 
     /* Enqueue a new event */
-    queue_array[i++] = sb_timer_value(&sb_exec_timer);
+    queue_array[i] = sb_timer_value(&sb_exec_timer);
     if (ck_ring_enqueue_spmc(&queue_ring, queue_ring_buffer,
-                             &queue_array[i]) == false)
+                             &queue_array[i++]) == false)
     {
       ck_pr_store_int(&queue_is_full, 1);
       log_text(LOG_FATAL,
@@ -1309,7 +1314,10 @@ static int init(void)
 
   sb_globals.threads = sb_get_value_int("num-threads");
   if (sb_globals.threads > 1)
+  {
     log_text(LOG_WARNING, "--num-threads is deprecated, use --threads instead");
+    sb_opt_copy("threads", "num-threads");
+  }
   else
     sb_globals.threads = sb_get_value_int("threads");
 
@@ -1322,7 +1330,10 @@ static int init(void)
 
   sb_globals.max_events = sb_get_value_int("max-requests");
   if (sb_globals.max_events > 0)
+  {
     log_text(LOG_WARNING, "--max-requests is deprecated, use --events instead");
+    sb_opt_copy("events", "max-requests");
+  }
   else
     sb_globals.max_events = sb_get_value_int("events");
 
@@ -1336,7 +1347,10 @@ static int init(void)
 
   int max_time = sb_get_value_int("max-time");
   if (max_time > 0)
+  {
     log_text(LOG_WARNING, "--max-time is deprecated, use --time instead");
+    sb_opt_copy("time", "max-time");
+  }
   else
     max_time = sb_get_value_int("time");
 
@@ -1402,7 +1416,10 @@ static int init(void)
 
   sb_globals.tx_rate = sb_get_value_int("tx-rate");
   if (sb_globals.tx_rate > 0)
+  {
     log_text(LOG_WARNING, "--tx-rate is deprecated, use --rate instead");
+    sb_opt_copy("rate", "tx-rate");
+  }
   else
     sb_globals.tx_rate = sb_get_value_int("rate");
 
@@ -1450,6 +1467,9 @@ static int init(void)
 
   for (unsigned i = 0; i < sb_globals.threads; i++)
     sb_timer_init(&timers[i]);
+
+  /* LuaJIT commands */
+  sb_globals.luajit_cmd = sb_get_value_string("luajit-cmd");
 
   return 0;
 }
@@ -1515,19 +1535,8 @@ int main(int argc, char *argv[])
 
     if (test == NULL)
     {
-      /* Is it a path? */
-      if (access(sb_globals.testname, R_OK))
-      {
-        fprintf(stderr, "Cannot find script %s: %s\n", sb_globals.testname,
-                strerror(errno));
-        return EXIT_FAILURE;
-      }
-
       if ((test = sb_load_lua(sb_globals.testname)) == NULL)
-      {
-        fprintf(stderr, "Script execution failed");
         return EXIT_FAILURE;
-      }
 
       if (sb_globals.cmdname == NULL)
       {

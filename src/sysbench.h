@@ -78,7 +78,6 @@ typedef struct
   union
   {
     sb_file_request_t    file_request;
-    sb_mem_request_t     mem_request;
     sb_threads_request_t threads_request;
     sb_mutex_request_t   mutex_request;
   } u;
@@ -205,6 +204,7 @@ typedef struct
   int             forced_shutdown_in_progress;
   int             warmup_time;  /* warmup time */
   uint64_t        nevents CK_CC_CACHELINE; /* event counter */
+  const char      *luajit_cmd; /* LuaJIT command */
 } sb_globals_t;
 
 extern sb_globals_t sb_globals CK_CC_CACHELINE;

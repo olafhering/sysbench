@@ -36,6 +36,8 @@
 # include <sys/shm.h>
 #endif
 
+#include <inttypes.h>
+
 #define LARGE_PAGE_SIZE (4UL * 1024 * 1024)
 
 /* Memory test arguments */
@@ -57,12 +59,17 @@ static sb_arg_t memory_args[] =
 
 /* Memory test operations */
 static int memory_init(void);
+static int memory_thread_init(int);
 static void memory_print_mode(void);
 static sb_event_t memory_next_event(int);
-static int memory_execute_event(sb_event_t *, int);
+static int event_rnd_none(sb_event_t *, int);
+static int event_rnd_read(sb_event_t *, int);
+static int event_rnd_write(sb_event_t *, int);
+static int event_seq_none(sb_event_t *, int);
+static int event_seq_read(sb_event_t *, int);
+static int event_seq_write(sb_event_t *, int);
 static void memory_report_intermediate(sb_stat_t *);
 static void memory_report_cumulative(sb_stat_t *);
-static int memory_thread_init(int);
 
 static sb_test_t memory_test =
 {
@@ -73,7 +80,6 @@ static sb_test_t memory_test =
     .thread_init = memory_thread_init,
     .print_mode = memory_print_mode,
     .next_event = memory_next_event,
-    .execute_event = memory_execute_event,
     .report_intermediate = memory_report_intermediate,
     .report_cumulative = memory_report_cumulative
   },
@@ -97,15 +103,14 @@ static unsigned int memory_access_rnd;
 static unsigned int memory_hugetlb;
 #endif
 
-/* Statistics */
-static unsigned int total_ops;
-static long long    total_bytes;
-static long long    last_bytes;
+static TLS uint64_t tls_total_ops CK_CC_CACHELINE;
+static TLS size_t *tls_buf;
+static TLS size_t *tls_buf_end;
 
 /* Array of per-thread buffers */
-static int **buffers;
+static size_t **buffers;
 /* Global buffer */
-static int *buffer;
+static size_t *buffer;
 
 static void diff_timespec(int thread_id, const struct timespec *old, const struct timespec *new, struct timespec *diff)
 {
@@ -125,22 +130,6 @@ static void diff_timespec(int thread_id, const struct timespec *old, const struc
 }
 
 
-static int memory_thread_init(int thread_id)
-{
-  cpu_set_t set;
-  int rc;
-  char *e;
-
-  e = calloc(123, 1);
-  CPU_ZERO(&set);
-  CPU_SET(thread_id, &set);
-  rc = sched_setaffinity(0, sizeof(set), &set);
-  if (strerror_r(errno, e, 123))
-	  perror("strerror");
-  log_text(LOG_INFO, "thread %d %s", thread_id, e);
-  free(e);
-  return rc;
-}
 #ifdef HAVE_LARGE_PAGES
 static void * hugetlb_alloc(size_t size);
 #endif
@@ -157,15 +146,19 @@ int memory_init(void)
 {
   unsigned int i;
   char         *s;
-  
+
   memory_block_size = sb_get_value_size("memory-block-size");
-  if (memory_block_size % sizeof(int) != 0)
+  if (memory_block_size < SIZEOF_SIZE_T ||
+      /* Must be a power of 2 */
+      (memory_block_size & (memory_block_size - 1)) != 0)
   {
-    log_text(LOG_FATAL, "memory-block-size must be a multiple of %ld!", (long)sizeof(int));
+    log_text(LOG_FATAL, "Invalid value for memory-block-size: %s",
+             sb_get_value_string("memory-block-size"));
     return 1;
   }
+
   memory_total_size = sb_get_value_size("memory-total-size");
-  
+
   s = sb_get_value_string("memory-scope");
   if (!strcmp(s, "global"))
     memory_scope = SB_MEM_SCOPE_GLOBAL;
@@ -209,10 +202,11 @@ int memory_init(void)
   {
 #ifdef HAVE_LARGE_PAGES
     if (memory_hugetlb)
-      buffer = (int *)hugetlb_alloc(memory_block_size);
+      buffer = hugetlb_alloc(memory_block_size);
     else
 #endif
-    buffer = (int *)malloc(memory_block_size);
+      buffer = sb_memalign(memory_block_size, sb_getpagesize());
+
     if (buffer == NULL)
     {
       log_text(LOG_FATAL, "Failed to allocate buffer!");
@@ -223,7 +217,7 @@ int memory_init(void)
   }
   else
   {
-    buffers = (int **)malloc(sb_globals.threads * sizeof(char *));
+    buffers = malloc(sb_globals.threads * sizeof(void *));
     if (buffers == NULL)
     {
       log_text(LOG_FATAL, "Failed to allocate buffers array!");
@@ -233,10 +227,11 @@ int memory_init(void)
     {
 #ifdef HAVE_LARGE_PAGES
       if (memory_hugetlb)
-        buffers[i] = (int *)hugetlb_alloc(memory_block_size);
+        buffers[i] = hugetlb_alloc(memory_block_size);
       else
 #endif
-      buffers[i] = (int *)malloc(memory_block_size);
+        buffers[i] = sb_memalign(memory_block_size, sb_getpagesize());
+
       if (buffers[i] == NULL)
       {
         log_text(LOG_FATAL, "Failed to allocate buffer for thread #%d!", i);
@@ -245,6 +240,27 @@ int memory_init(void)
 
       memset(buffers[i], 0, memory_block_size);
     }
+  }
+
+  switch (memory_oper) {
+  case SB_MEM_OP_NONE:
+    memory_test.ops.execute_event =
+      memory_access_rnd ? event_rnd_none : event_seq_none;
+    break;
+
+  case SB_MEM_OP_READ:
+    memory_test.ops.execute_event =
+      memory_access_rnd ? event_rnd_read : event_seq_read;
+    break;
+
+  case SB_MEM_OP_WRITE:
+    memory_test.ops.execute_event =
+      memory_access_rnd ? event_rnd_write : event_seq_write;
+    break;
+
+  default:
+    log_text(LOG_FATAL, "Unknown memory request type: %d\n", memory_oper);
+    return 1;
   }
 
   /* Use our own limit on the number of events */
@@ -260,106 +276,85 @@ int memory_init(void)
 }
 
 
+int memory_thread_init(int thread_id)
+{
+  (void) thread_id; /* unused */
+
+  cpu_set_t set;
+  int rc;
+  char *e;
+
+  e = calloc(123, 1);
+  CPU_ZERO(&set);
+  CPU_SET(thread_id, &set);
+  rc = sched_setaffinity(0, sizeof(set), &set);
+  if (strerror_r(errno, e, 123))
+	  perror("strerror");
+  log_text(LOG_INFO, "thread %d %s", thread_id, e);
+  free(e);
+
+  /* Initialize thread-local variables for each thread */
+
+  if (memory_total_size > 0)
+  {
+    tls_total_ops = memory_total_size / memory_block_size / sb_globals.threads;
+  }
+
+  switch (memory_scope) {
+  case SB_MEM_SCOPE_GLOBAL:
+    tls_buf = buffer;
+    break;
+  case SB_MEM_SCOPE_LOCAL:
+    tls_buf = buffers[thread_id];
+    break;
+  default:
+    log_text(LOG_FATAL, "Invalid memory scope");
+    return 1;
+  }
+
+  tls_buf_end = (size_t *) (void *) ((char *) tls_buf + memory_block_size);
+
+  return rc;
+  return 0;
+}
+
+
 sb_event_t memory_next_event(int thread_id)
 {
   sb_event_t      req;
-  sb_mem_request_t  *mem_req = &req.u.mem_request;
 
   (void) thread_id; /* unused */
 
-  SB_THREAD_MUTEX_LOCK();
-  if (total_bytes >= memory_total_size)
+  if (memory_total_size > 0 && !tls_total_ops--)
   {
     req.type = SB_REQ_TYPE_NULL;
-    SB_THREAD_MUTEX_UNLOCK();
     return req;
   }
-  total_ops++;
-  total_bytes += memory_block_size;
-  SB_THREAD_MUTEX_UNLOCK();
 
   req.type = SB_REQ_TYPE_MEMORY;
-  mem_req->block_size = memory_block_size;
-  mem_req->scope = memory_scope;
-  mem_req->type = memory_oper;
 
   return req;
 }
 
-int memory_execute_event(sb_event_t *sb_req, int thread_id)
+static void evt_before(const char *fn, int thread_id, struct timespec *start)
 {
-  sb_mem_request_t    *mem_req = &sb_req->u.mem_request;
-  volatile int        tmp = 0;
-  int                 idx; 
-  int                 *buf, *end;
-  long                i;
-  struct timespec     start, stop, diff;
-
   per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
-  if (clock_gettime(CLOCK_MONOTONIC, &start)) {
-    log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
+  if (clock_gettime(CLOCK_MONOTONIC, start)) {
+    log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
     exit(1);
   }
-
   cnt++;
-  if (mem_req->scope == SB_MEM_SCOPE_GLOBAL)
-    buf = buffer;
-  else
-    buf = buffers[thread_id];
-  end = (int *)(void *)((char *)buf + memory_block_size);
+}
 
-  if (memory_access_rnd)
-  {
-    switch (mem_req->type) {
-      case SB_MEM_OP_WRITE:
-        for (i = 0; i < memory_block_size; i += sizeof(int))
-        {
-          idx = (int)(sb_rand_uniform_double() *
-                      (memory_block_size / sizeof(int)));
-          buf[idx] = tmp;
-        }
-        break;
-      case SB_MEM_OP_READ:
-        for (i = 0; i < memory_block_size; i += sizeof(int))
-        {
-          idx = (int)(sb_rand_uniform_double() *
-                      (memory_block_size / sizeof(int)));
-          tmp = buf[idx];
-        }
-        break;
-      default:
-        log_text(LOG_FATAL, "Unknown memory request type:%d. Aborting...\n",
-                 mem_req->type);
-        return 1;
-    }
-  }
-  else
-  {
-    switch (mem_req->type) {
-      case SB_MEM_OP_NONE:
-        for (; buf < end; buf++)
-          tmp = end - buf;
-        break;
-      case SB_MEM_OP_WRITE:
-        for (; buf < end; buf++)
-          *buf = tmp;
-        break;
-      case SB_MEM_OP_READ:
-        for (; buf < end; buf++)
-          tmp = *buf;
-        break;
-      default:
-        log_text(LOG_FATAL, "Unknown memory request type:%d. Aborting...\n",
-                 mem_req->type);
-        return 1;
-    }
-  }
+static void evt_after(const char *fn, int thread_id, struct timespec *start)
+{
+  struct timespec stop, diff;
 
   if (clock_gettime(CLOCK_MONOTONIC, &stop)) {
-    log_text(LOG_FATAL, "%s %d %m\n", __func__, thread_id);
+    log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
     exit(1);
   }
-  diff_timespec(thread_id, &start, &stop, &diff);
+  diff_timespec(thread_id, start, &stop, &diff);
   if (per_exec_times[thread_id]) {
     if (diff.tv_nsec) {
       per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
@@ -373,6 +368,134 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
     per_exec_times_min[thread_id] = diff.tv_nsec;
     per_exec_times_max[thread_id] = diff.tv_nsec;
   }
+}
+
+/*
+  Use either 32- or 64-bit primitives depending on the native word
+  size. ConcurrencyKit ensures the corresponding loads/stores are not optimized
+  away by the compiler.
+*/
+#if SIZEOF_SIZE_T == 4
+# define SIZE_T_LOAD(ptr) ck_pr_load_32((uint32_t *)(ptr))
+# define SIZE_T_STORE(ptr,val) ck_pr_store_32((uint32_t *)(ptr),(uint32_t)(val))
+#elif SIZEOF_SIZE_T == 8
+# define SIZE_T_LOAD(ptr) ck_pr_load_64((uint64_t *)(ptr))
+# define SIZE_T_STORE(ptr,val) ck_pr_store_64((uint64_t *)(ptr),(uint64_t)(val))
+#else
+# error Unsupported platform.
+#endif
+
+int event_rnd_none(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (ssize_t i = 0; i < memory_block_size; i += SIZEOF_SIZE_T)
+  {
+    size_t offset = (volatile size_t) (sb_rand_uniform_double() *
+                                       (memory_block_size / SIZEOF_SIZE_T));
+    (void) offset; /* unused */
+    /* nop */
+  }
+
+  evt_after(__func__, thread_id, &start);
+  return 0;
+}
+
+
+int event_rnd_read(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (ssize_t i = 0; i < memory_block_size; i += SIZEOF_SIZE_T)
+  {
+    size_t offset = (size_t) (sb_rand_uniform_double() *
+                              (memory_block_size / SIZEOF_SIZE_T));
+    size_t val = SIZE_T_LOAD(tls_buf + offset);
+    (void) val; /* unused */
+  }
+
+  evt_after(__func__, thread_id, &start);
+  return 0;
+}
+
+
+int event_rnd_write(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (ssize_t i = 0; i < memory_block_size; i += SIZEOF_SIZE_T)
+  {
+    size_t offset = (size_t) (sb_rand_uniform_double() *
+                              (memory_block_size / SIZEOF_SIZE_T));
+    SIZE_T_STORE(tls_buf + offset, i);
+  }
+
+  evt_after(__func__, thread_id, &start);
+  return 0;
+}
+
+
+int event_seq_none(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (size_t *buf = tls_buf, *end = buf + memory_block_size / SIZEOF_SIZE_T;
+       buf < end; buf++)
+  {
+    ck_pr_barrier();
+    /* nop */
+  }
+
+  evt_after(__func__, thread_id, &start);
+  return 0;
+}
+
+
+int event_seq_read(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (size_t *buf = tls_buf, *end = buf + memory_block_size / SIZEOF_SIZE_T;
+       buf < end; buf++)
+  {
+    size_t val = SIZE_T_LOAD(buf);
+    (void) val; /* unused */
+  }
+
+  evt_after(__func__, thread_id, &start);
+  return 0;
+}
+
+
+int event_seq_write(sb_event_t *req, int thread_id)
+{
+  (void) req; /* unused */
+  (void) thread_id; /* unused */
+  struct timespec     start;
+  evt_before(__func__, thread_id, &start);
+
+  for (size_t *buf = tls_buf, *end = buf + memory_block_size / SIZEOF_SIZE_T;
+       buf < end; buf++)
+  {
+    SIZE_T_STORE(buf, end - buf);
+  }
+
+  evt_after(__func__, thread_id, &start);
   return 0;
 }
 
@@ -380,11 +503,11 @@ int memory_execute_event(sb_event_t *sb_req, int thread_id)
 void memory_print_mode(void)
 {
   char *str;
-  
-  log_text(LOG_INFO, "Doing memory operations speed test");
-  log_text(LOG_INFO, "Memory block size: %ldKiB\n",
+
+  log_text(LOG_NOTICE, "Running memory speed test with the following options:");
+  log_text(LOG_NOTICE, "  block size: %ldKiB",
            (long)(memory_block_size / 1024));
-  log_text(LOG_INFO, "Memory transfer size: %ldMiB\n",
+  log_text(LOG_NOTICE, "  total size: %ldMiB",
            (long)(memory_total_size / 1024 / 1024));
 
   switch (memory_oper) {
@@ -401,7 +524,7 @@ void memory_print_mode(void)
       str = "(unknown)";
       break;
   }
-  log_text(LOG_INFO, "Memory operations type: %s", str);
+  log_text(LOG_NOTICE, "  operation: %s", str);
 
   switch (memory_scope) {
     case SB_MEM_SCOPE_GLOBAL:
@@ -414,13 +537,13 @@ void memory_print_mode(void)
       str = "(unknown)";
       break;
   }
-  log_text(LOG_INFO, "Memory scope type: %s", str);
+  log_text(LOG_NOTICE, "  scope: %s", str);
+
+  log_text(LOG_NOTICE, "");
 }
 
 /*
   Print intermediate test statistics.
-
-  TODO: remove the mutex, use sb_stat_t and sb_counter_t.
 */
 
 void memory_report_intermediate(sb_stat_t *stat)
@@ -429,8 +552,6 @@ void memory_report_intermediate(sb_stat_t *stat)
   static char t[4096];
   size_t i, j = 0, k;
   unsigned long long tsc = __builtin_ia32_rdtsc();
-
-  SB_THREAD_MUTEX_LOCK();
 
   for (i = 0; i < sb_globals.threads; i++) {
     k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
@@ -443,37 +564,29 @@ void memory_report_intermediate(sb_stat_t *stat)
     j += k;
   }
   log_timestamp(LOG_NOTICE, stat->time_total,
-                "% 9.2f MiB/sec %7u: %16llx %s", (double)(total_bytes - last_bytes) /
-                megabyte / stat->time_interval, cnt, tsc, t);
-  last_bytes = total_bytes;
+                "% 9.2f MiB/sec %7u: %16llx %s",
+                stat->events * memory_block_size / megabyte / stat->time_interval,
+                cnt, tsc, t);
   cnt = 0;
-
-  SB_THREAD_MUTEX_UNLOCK();
 }
 
 /*
   Print cumulative test statistics.
-
-  TODO: remove the mutex, use sb_stat_t and sb_counter_t.
 */
 
 void memory_report_cumulative(sb_stat_t *stat)
 {
   const double megabyte = 1024.0 * 1024.0;
 
-  SB_THREAD_MUTEX_LOCK();
-
-  log_text(LOG_NOTICE, "Operations performed: %d (%8.2f ops/sec)\n",
-           total_ops, total_ops / stat->time_interval);
+  log_text(LOG_NOTICE, "Total operations: %" PRIu64 " (%8.2f per second)\n",
+           stat->events, stat->events / stat->time_interval);
 
   if (memory_oper != SB_MEM_OP_NONE)
+  {
+    const double mb = stat->events * memory_block_size / megabyte;
     log_text(LOG_NOTICE, "%4.2f MiB transferred (%4.2f MiB/sec)\n",
-             total_bytes / megabyte,
-             total_bytes / megabyte / stat->time_interval);
-  total_ops = 0;
-  total_bytes = 0;
-
-  SB_THREAD_MUTEX_UNLOCK();
+             mb, mb / stat->time_interval);
+  }
 
   sb_report_cumulative(stat);
 }
