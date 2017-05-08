@@ -11,7 +11,7 @@ while test $LOOP -gt 0; do
   uname -a
   free -m
   ${sysbench} \
-	--file-test-mode=seqrewr \
+	--file-test-mode=seqwr \
         --verbosity=5 \
         --threads=${cpus} \
         --report-interval=3 \
