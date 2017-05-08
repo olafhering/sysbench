@@ -21,4 +21,4 @@ while test $LOOP -gt 0; do
         uname -a
         sleep 2
   LOOP=$(($LOOP-1))
-done 2>&1 | tee log.txt
+done 2>&1 | tee log.fileio.txt
