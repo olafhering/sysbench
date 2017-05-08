@@ -7,9 +7,11 @@ automake --version
 pkg-config --version
 make --version
 gcc --version
+test -n "$(type -p gcc-4.7)" && gcc-4.7 --version
 test -n "$(type -p gcc-4.8)" && gcc-4.8 --version
 xxd --version
 CC=gcc
+test -n "$(type -p gcc-4.7)" && CC=gcc-4.7
 test -n "$(type -p gcc-4.8)" && CC=gcc-4.8
 autoreconf -vi
 env \
