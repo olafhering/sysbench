@@ -337,7 +337,6 @@ sb_event_t memory_next_event(int thread_id)
 
 static void evt_before(const char *fn, int thread_id, struct timespec *start)
 {
-  unsigned old_v, new_v;
   per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
   if (clock_gettime(CLOCK_MONOTONIC, start)) {
     log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
