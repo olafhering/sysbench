@@ -88,7 +88,6 @@ static sb_test_t memory_test =
 
 /* Test arguments */
 
-static unsigned cnt;
 static unsigned long *per_exec_times;
 static unsigned long *per_exec_times_min;
 static unsigned long *per_exec_times_max;
@@ -344,13 +343,6 @@ static void evt_before(const char *fn, int thread_id, struct timespec *start)
     log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
     exit(1);
   }
-  if (false)
-    return;
-  old_v = __atomic_load_n(&cnt, __ATOMIC_ACQUIRE);
-  new_v = old_v + 1;
-  while (!__atomic_compare_exchange_n(&cnt, &old_v, new_v, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
-    new_v = old_v + 1;
-  }
 }
 
 static void evt_after(const char *fn, int thread_id, struct timespec *start)
@@ -559,8 +551,10 @@ void memory_report_intermediate(sb_stat_t *stat)
   static char t[4096];
   size_t i, j = 0, k;
   unsigned long long tsc = __builtin_ia32_rdtsc();
+  unsigned cnt = 0;
 
   for (i = 0; i < sb_globals.threads; i++) {
+    cnt += per_exec_times_cnt[i];
     k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i] / per_exec_times_cnt[i], per_exec_times_max[i]);
     per_exec_times[i] = 0;
     per_exec_times_cnt[i] = 0;
@@ -574,7 +568,6 @@ void memory_report_intermediate(sb_stat_t *stat)
                 "% 9.2f MiB/sec %7u: %16llx %s",
                 stat->events * memory_block_size / megabyte / stat->time_interval,
                 cnt, tsc, t);
-  cnt = 0;
 }
 
 /*
