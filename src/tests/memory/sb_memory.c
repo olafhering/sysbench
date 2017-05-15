@@ -89,11 +89,11 @@ static sb_test_t memory_test =
 /* Test arguments */
 
 static unsigned cnt;
-static long *per_exec_times;
-static long *per_exec_times_min;
-static long *per_exec_times_max;
-static long *per_exec_times_cnt;
-static long *per_exec_times_miss;
+static unsigned long *per_exec_times;
+static unsigned long *per_exec_times_min;
+static unsigned long *per_exec_times_max;
+static unsigned long *per_exec_times_cnt;
+static unsigned long *per_exec_times_miss;
 static ssize_t memory_block_size;
 static long long    memory_total_size;
 static unsigned int memory_scope;
