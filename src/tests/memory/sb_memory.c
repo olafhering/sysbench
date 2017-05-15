@@ -338,12 +338,19 @@ sb_event_t memory_next_event(int thread_id)
 
 static void evt_before(const char *fn, int thread_id, struct timespec *start)
 {
+  unsigned old_v, new_v;
   per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
   if (clock_gettime(CLOCK_MONOTONIC, start)) {
     log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
     exit(1);
   }
-  cnt++;
+  if (false)
+    return;
+  old_v = __atomic_load_n(&cnt, __ATOMIC_ACQUIRE);
+  new_v = old_v + 1;
+  while (!__atomic_compare_exchange_n(&cnt, &old_v, new_v, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+    new_v = old_v + 1;
+  }
 }
 
 static void evt_after(const char *fn, int thread_id, struct timespec *start)
