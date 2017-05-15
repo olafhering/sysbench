@@ -357,19 +357,14 @@ static void evt_after(const char *fn, int thread_id, struct timespec *start)
     exit(1);
   }
   diff_timespec(thread_id, start, &stop, &diff);
-  if (per_exec_times[thread_id]) {
-    if (diff.tv_nsec) {
-      per_exec_times[thread_id] = per_exec_times[thread_id] + (diff.tv_nsec + (1000000000 * diff.tv_sec));
-      if (diff.tv_nsec < per_exec_times_min[thread_id]) per_exec_times_min[thread_id] = diff.tv_nsec;
-      if (diff.tv_nsec > per_exec_times_max[thread_id]) per_exec_times_max[thread_id] = diff.tv_nsec;
-    } else {
-      per_exec_times_miss[thread_id] = per_exec_times_miss[thread_id] + 1;
-    }
-  } else {
-    per_exec_times[thread_id] = diff.tv_nsec;
-    per_exec_times_min[thread_id] = diff.tv_nsec;
-    per_exec_times_max[thread_id] = diff.tv_nsec;
+  if (diff.tv_nsec > 0) {
+    unsigned long tv_nsec = diff.tv_nsec;
+    if (!per_exec_times_min[thread_id] || (tv_nsec < per_exec_times_min[thread_id]))
+      per_exec_times_min[thread_id] = tv_nsec;
+    if (!per_exec_times_max[thread_id] || (tv_nsec > per_exec_times_max[thread_id]))
+      per_exec_times_max[thread_id] = tv_nsec;
   }
+  per_exec_times[thread_id] = per_exec_times[thread_id] + (diff.tv_nsec + (1000000000 * diff.tv_sec));
 }
 
 /*
