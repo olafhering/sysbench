@@ -357,7 +357,7 @@ static void evt_after(const char *fn, int thread_id, struct timespec *start)
   diff_timespec(thread_id, start, &stop, &diff);
   if (per_exec_times[thread_id]) {
     if (diff.tv_nsec) {
-      per_exec_times[thread_id] = (per_exec_times[thread_id] + diff.tv_nsec) / 2;
+      per_exec_times[thread_id] = per_exec_times[thread_id] + (diff.tv_nsec + (1000000000 * diff.tv_sec));
       if (diff.tv_nsec < per_exec_times_min[thread_id]) per_exec_times_min[thread_id] = diff.tv_nsec;
       if (diff.tv_nsec > per_exec_times_max[thread_id]) per_exec_times_max[thread_id] = diff.tv_nsec;
     } else {
@@ -554,7 +554,7 @@ void memory_report_intermediate(sb_stat_t *stat)
   unsigned long long tsc = __builtin_ia32_rdtsc();
 
   for (i = 0; i < sb_globals.threads; i++) {
-    k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i], per_exec_times_max[i]);
+    k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i] / per_exec_times_cnt[i], per_exec_times_max[i]);
     per_exec_times[i] = 0;
     per_exec_times_cnt[i] = 0;
     per_exec_times_miss[i] = 0;
