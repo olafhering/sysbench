@@ -147,6 +147,7 @@ int register_test_memory(sb_list_t *tests)
 
 int memory_init(void)
 {
+  struct timespec res;
   unsigned int i;
   char         *s;
 
@@ -269,6 +270,11 @@ int memory_init(void)
   /* Use our own limit on the number of events */
   sb_globals.max_events = 0;
 
+  if (clock_getres(CLOCK_MONOTONIC, &res) < 0) {
+    log_text(LOG_FATAL, "clock_getres: %m\n");
+    return 1;
+  }
+  log_text(LOG_FATAL, "clock_getres: %lds %ldns\n", (long)res.tv_sec, res.tv_nsec);
   per_exec_times = calloc(sb_globals.threads, sizeof(*per_exec_times));
   per_exec_times_min = calloc(sb_globals.threads, sizeof(*per_exec_times_min));
   per_exec_times_max = calloc(sb_globals.threads, sizeof(*per_exec_times_max));
