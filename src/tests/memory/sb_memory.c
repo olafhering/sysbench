@@ -53,6 +53,7 @@ static sb_arg_t memory_args[] =
   SB_OPT("memory-oper", "type of memory operations {read, write, none}",
          "write", STRING),
   SB_OPT("memory-access-mode", "memory access mode {seq,rnd}", "seq", STRING),
+  SB_OPT("memory-exectimes", "collect loop execution statistics", "off", BOOL),
 
   SB_OPT_END
 };
@@ -88,6 +89,7 @@ static sb_test_t memory_test =
 
 /* Test arguments */
 
+static unsigned long collect_exec_times;
 static unsigned long *per_exec_times;
 static unsigned long *per_exec_times_min;
 static unsigned long *per_exec_times_max;
@@ -174,6 +176,7 @@ int memory_init(void)
     return 1;
   }
 
+    collect_exec_times = sb_get_value_flag("memory-exectimes");
 #ifdef HAVE_LARGE_PAGES
     memory_hugetlb = sb_get_value_flag("memory-hugetlb");
 #endif  
@@ -347,6 +350,8 @@ sb_event_t memory_next_event(int thread_id)
 
 static void evt_before(const char *fn, int thread_id, struct timespec *start)
 {
+  if (!collect_exec_times)
+    return;
   per_exec_times_cnt[thread_id] = per_exec_times_cnt[thread_id] + 1;
   if (clock_gettime(CLOCK_MONOTONIC, start)) {
     log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
@@ -358,6 +363,8 @@ static void evt_after(const char *fn, int thread_id, struct timespec *start)
 {
   struct timespec stop, diff;
 
+  if (!collect_exec_times)
+    return;
   if (clock_gettime(CLOCK_MONOTONIC, &stop)) {
     log_text(LOG_FATAL, "%s %d %m\n", fn, thread_id);
     exit(1);
@@ -554,9 +561,17 @@ void memory_report_intermediate(sb_stat_t *stat)
   const double megabyte = 1024.0 * 1024.0;
   static char t[4096];
   size_t i, j = 0, k;
-  unsigned long long tsc = __builtin_ia32_rdtsc();
+  unsigned long long tsc;
   unsigned cnt = 0;
 
+  if (!collect_exec_times) {
+    log_timestamp(LOG_NOTICE, stat->time_total,
+                  "% 9.2f MiB/sec",
+                  stat->events * memory_block_size / megabyte / stat->time_interval);
+    return;
+  }
+
+  tsc = __builtin_ia32_rdtsc();
   for (i = 0; i < sb_globals.threads; i++) {
     cnt += per_exec_times_cnt[i];
     k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i] / per_exec_times_cnt[i], per_exec_times_max[i]);
