@@ -5,7 +5,7 @@ test -z "${sysbench}" && sysbench=./src/sysbench
 LOOP=$2
 test -z "${LOOP}" && LOOP=1
 cpus=`if grep -Ec 'cpu[0-9]' /proc/stat ; then : ; elif sysctl -n hw.ncpu ; then : ; else echo 1 ; fi`
-blk=1K
+blk=1G
 exectimes=on
 
 while test $LOOP -gt 0; do
