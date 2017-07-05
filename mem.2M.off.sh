@@ -25,6 +25,7 @@ while test $LOOP -gt 0; do
         --report-interval=3 \
         --memory-exectimes=${exectimes} \
         --memory-tracker=${tracker} \
+        --time=987654321 \
         memory run
         date
         uname -a
