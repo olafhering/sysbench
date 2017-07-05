@@ -25,6 +25,8 @@
 
 #include <errno.h>
 #include <sched.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include "sysbench.h"
 #include "sb_rand.h"
 
@@ -54,6 +56,7 @@ static sb_arg_t memory_args[] =
          "write", STRING),
   SB_OPT("memory-access-mode", "memory access mode {seq,rnd}", "seq", STRING),
   SB_OPT("memory-exectimes", "collect loop execution statistics", "off", BOOL),
+  SB_OPT("memory-tracker", "record changes in the specified file", "", STRING),
 
   SB_OPT_END
 };
@@ -95,6 +98,10 @@ static unsigned long *per_exec_times_min;
 static unsigned long *per_exec_times_max;
 static unsigned long *per_exec_times_cnt;
 static unsigned long *per_exec_times_miss;
+static char *tracker;
+static char tracker_buf[256];
+static ssize_t tracker_len;
+static ssize_t tracker_error;
 static ssize_t memory_block_size;
 static long long    memory_total_size;
 static unsigned int memory_scope;
@@ -112,6 +119,47 @@ static TLS size_t *tls_buf_end;
 static size_t **buffers;
 /* Global buffer */
 static size_t *buffer;
+
+static void check_tracker(int report)
+{
+  int fd;
+  char buf[sizeof(tracker_buf)];
+  ssize_t len, i;
+
+  if (!tracker)
+    return;
+  memset(buf, 0, sizeof(buf));
+  fd = open(tracker, O_RDONLY);
+  if (fd < 0)
+  {
+    if (!tracker_error++)
+      log_text(LOG_FATAL, "open '%s': %m", tracker);
+    return;
+  }
+  len = read(fd, buf, sizeof(buf) - 1);
+  if (len < 0) {
+    if (!tracker_error++)
+      log_text(LOG_FATAL, "read '%s': %m", tracker);
+    goto out;
+  }
+  tracker_error = 0;
+  i = len;
+  while (i) {
+    i--;
+    if (buf[i] == '\n') {
+      buf[i] = '\0';
+      len--;
+    }
+  }
+  if (strcmp(buf, tracker_buf)) {
+    if (report)
+      log_text(LOG_FATAL, "%s changed: '%s' -> '%s'", tracker, tracker_buf, buf);
+    strcpy(tracker_buf, buf);
+    tracker_len = len;
+  }
+out:
+  close(fd);
+}
 
 static void diff_timespec(int thread_id, const struct timespec *old, const struct timespec *new, struct timespec *diff)
 {
@@ -272,6 +320,15 @@ int memory_init(void)
 
   /* Use our own limit on the number of events */
   sb_globals.max_events = 0;
+
+  s = sb_get_value_string("memory-tracker");
+  if (s && strlen(s)) {
+    tracker = strdup(s);
+    log_text(LOG_FATAL, "Tracking changes in '%s'\n", tracker);
+    if (!tracker)
+      return 1;
+  }
+  check_tracker(0);
 
   if (clock_getres(CLOCK_MONOTONIC, &res) < 0) {
     log_text(LOG_FATAL, "clock_getres: %m\n");
@@ -564,6 +621,7 @@ void memory_report_intermediate(sb_stat_t *stat)
   unsigned long long tsc;
   unsigned cnt = 0;
 
+  check_tracker(1);
   if (!collect_exec_times) {
     log_timestamp(LOG_NOTICE, stat->time_total,
                   "% 9.2f MiB/sec",
