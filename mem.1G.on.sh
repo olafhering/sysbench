@@ -8,6 +8,11 @@ cpus=`if grep -Ec 'cpu[0-9]' /proc/stat ; then : ; elif sysctl -n hw.ncpu ; then
 blk=1G
 exectimes=on
 
+tracker=/dev/shm/$$
+bash domid_tracker.sh ${tracker} < /dev/null &> /dev/null &
+tracker_pid=$!
+trap "kill -SIGHUP ${tracker_pid}" EXIT
+
 while test $LOOP -gt 0; do
   echo Test $LOOP
   uname -a
@@ -19,6 +24,7 @@ while test $LOOP -gt 0; do
         --threads=${cpus} \
         --report-interval=3 \
 	--memory-exectimes=${exectimes} \
+	--memory-tracker=${tracker} \
         --time=66 \
         memory run
         date
