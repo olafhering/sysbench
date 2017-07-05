@@ -631,8 +631,11 @@ void memory_report_intermediate(sb_stat_t *stat)
 
   tsc = __builtin_ia32_rdtsc();
   for (i = 0; i < sb_globals.threads; i++) {
+    unsigned long exec_times_cnt = 0;
     cnt += per_exec_times_cnt[i];
-    k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], per_exec_times[i] / per_exec_times_cnt[i], per_exec_times_max[i]);
+    if (per_exec_times_cnt[i])
+      exec_times_cnt = per_exec_times[i] / per_exec_times_cnt[i];
+    k = snprintf(t + j, sizeof(t) - j, "%6lx/%lx(%6lx %6lx %7lx) ", per_exec_times_cnt[i], per_exec_times_miss[i], per_exec_times_min[i], exec_times_cnt, per_exec_times_max[i]);
     per_exec_times[i] = 0;
     per_exec_times_cnt[i] = 0;
     per_exec_times_miss[i] = 0;
