@@ -23,8 +23,8 @@ while test $LOOP -gt 0; do
         --verbosity=5 \
         --threads=${cpus} \
         --report-interval=3 \
-	--memory-exectimes=${exectimes} \
-	--memory-tracker=${tracker} \
+        --memory-exectimes=${exectimes} \
+        --memory-tracker=${tracker} \
         memory run
         date
         uname -a
